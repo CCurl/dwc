@@ -1,42 +1,47 @@
-# forth-dwc: a minimal DWORD-Code Forth
+# DWC: a minimal DWord-Code Forth
 
-DWC is an extremely minimal Forth system that can run stand-alone or be embedded into another program.
+DWC is a minimal Forth system that can run stand-alone or be embedded into another program.
 
-DWC has 32 base primitives, 14 system primitives.<br/>
 DWC is implemented in 3 files: (dwc-vm.c, dwc-vm.h, system.c). <br/>
-The VM itself is under 200 lines of code.
+The DWC VM is implemented in under 200 lines of code.<br/>
+DWC has 64 primitives.<br/>
+The primitives are quite complete and any Forth system can be built from them.
 
-On Windows, a 32-bit Release build compiles to a 17k executable. <br/>
-On a Linux box, it is about 21k.
-
-**DWC** stands for "DWord-Code". This is inspired by Tachyon. <br/>
-In a DWC program, each instruction is a DWORD (32-bits). <br/>
-- If <= the last primitive (45), then it is a primitive.
-- Else, if the top 3 bits are set, then it is a literal ANDed with $3FFFFFFF.
+In a DWC program, each instruction is a single 32-bit CELL (a DWord).
+- If <= the last primitive (system), then it is a primitive.
+- Else, if the top 3 bits are set, then it is a literal.
 - Else, it is the XT (code address) of a word in the dictionary.
 
 ### DWC hard-codes the following IMMEDIATE state-change words:
 
 | Word | Action |
 |:--   |:-- |
-|  :   | Add the next word to the dictionary, set STATE to COMPILE. |
-|  ;   | Compile EXIT and change state to INTERPRET. |
+|  :   | Add the next word to the dictionary, set `STATE` to COMPILE (1). |
+|  ;   | Compile EXIT and change `STATE` to INTERPRET (0). |
 
-**NOTE**: '(' skip words until the next ')' word.<br/>
-**NOTE**: '\\' skip words until the end of the line.<br/>
-**NOTE**: State '999' signals DWC to exit.<br/>
+**NOTE**: '(' skips words until the next ')' word.<br/>
+**NOTE**: '\\' skips words until the end of the line.<br/>
+**NOTE**: Setting `STATE` to 999 signals DWC to exit.
 
 ## INLINE words
 
 An INLINE word is somewhat similar to a macro in other languages.<br/>
-When a word is INLINE, its definition is copied to the target, up to the first `exit`.<br/>
-When not INLINE, a call is made to the word instead.
+When a word is INLINE, its definition is copied to the target, up to the first `EXIT`.<br/>
+When not INLINE, a call is made to the word instead. **NOTE**: if the next<br/>
+instruction is `EXIT`, it becomes a `JUMP` instead (the tail-call optimization).<br/>
 
 ## Transient words
 
 Words 't0' through 't9' are transient and are not added to the dictionary.<br/>
-They are case sensitive: 't0' is a transient word, 'T0' is not.<br/>
+They are **case sensitive**: 't0' is a transient word, 'T0' is not.<br/>
 They help with factoring code and and keep the dictionary uncluttered.<br/>
+They can be reused as many times as desired.
+
+## Built-in variables
+
+There are 3 built-in variables `x`, `y`, and `z`. There are also `+L` and `-L` that can<br/>
+be used to create 3 local variables under the user's control. `+L` and `-L` can be used<br/>
+at any time for any reason to create a new frame for new versions of the variables.
 
 ## DWC Startup Behavior
 
@@ -44,64 +49,81 @@ On startup, DWC does the following:
 - Create 'argc' with the count of command-line arguments
 - For each argument, create 'argX' with the address of the argument string
 - E.G. "arg0 ztype" will print `dwc`
-- Try to find a boot file to load:
-  - If arg1 names a file that can be opened, load that file.
-  - Else If "dwc-boot.fth" exists and can be opened, load that.
-  - Else If "`BIN_DIR`dwc-boot.fth" exists and can be opened, load that.
-  - NOTE: `BIN_DIR` is defined in the `dwc-vm.h` file. Change that as necessary.
+- If arg1 exists and names a file that can be opened, load that file.
+- Else, try to load file 'dwc-boot.fth' in the local folder '.'.
+- Else, try to load file '`BIN_DIR`dwc-boot.fth' in the "bin" folder.
+- On Linux, `BIN_DIR` is "/home/chris/bin/".
+- On Windows, `BIN_DIR` is "D:\\bin\\".
+- `BIN_DIR` is defined in dwc-vm.h. Adjust it in `dwc-vm.h` for your system if needed.
 
 ## The VM Primitives
 
 | Primitive | Op/Word  | Stack        | Description |
 |:--        |:--       |:--           |:-- |
-|           |          |              | --- **DWC primitives** --- |
 |   0       | exit     | (--)         | PC = R-TOS. Discard R-TOS. If (PC=0) then stop. |
 |   1       | lit      | (--)         | Push code[PC]. Increment PC. |
 |   2       | jmp      | (--)         | PC = code[PC]. |
-|   3       | jmpz     | (n--)        | If (TOS==0) then PC = code[PC] else PC = PC+1. Discard TOS. |
-|   4       | jmpnz    | (n--)        | If (TOS!=0) then PC = code[PC] else PC = PC+1. Discard TOS. |
-|   5       | njmpz    | (n--n)       | If (TOS==0) then PC = code[PC] else PC = PC+1. |
-|   6       | njmpnz   | (n--n)       | If (TOS!=0) then PC = code[PC] else PC = PC+1. |
-|   7       | dup      | (n--n n)     | Push TOS. |
-|   8       | drop     | (n--)        | Discard TOS. |
-|   9       | swap     | (a b--b a)   | Swap TOS and NOS. |
-|  10       | over     | (a b--a b a) | Push NOS. |
-|  11       | !        | (n a--)      | CELL store NOS through TOS. Discard TOS and NOS. |
-|  12       | @        | (a--n)       | CELL fetch TOS through TOS. |
-|  13       | c!       | (b a--)      | BYTE store NOS through TOS. Discard TOS and NOS. |
-|  14       | c@       | (a--b)       | BYTE fetch TOS through TOS. |
-|  15       | >r       | (n--)        | Push TOS onto the return stack. Discard TOS. |
-|  16       | r@       | (--n)        | Push R-TOS. |
-|  17       | r>       | (--n)        | Push R-TOS. Discard R-TOS. |
-|  18       | *        | (a b--c)     | TOS = NOS*TOS. Discard NOS. |
-|  19       | +        | (a b--c)     | TOS = NOS+TOS. Discard NOS. |
-|  20       | -        | (a b--c)     | TOS = NOS-TOS. Discard NOS. |
-|  21       | /mod     | (a b--r q)   | TOS = NOS/TOS. NOS = NOS modulo TOS. |
-|  22       | <        | (a b--f)     | If (NOS<TOS) then TOS = 1 else TOS = 0. Discard NOS. |
-|  23       | =        | (a b--f)     | If (NOS=TOS) then TOS = 1 else TOS = 0. Discard NOS. |
-|  24       | >        | (a b--f)     | If (NOS<TOS) then TOS = 1 else TOS = 0. Discard NOS. |
-|  25       | +!       | (n a--)      | Add NOS to the cell at TOS. Discard TOS and NOS. |
-|  26       | for      | (C--)        | Start a FOR loop starting at 0. Upper limit is C. |
-|  27       | i        | (--I)        | Push current loop index. |
-|  28       | next     | (--)         | Increment I. If I < C then jump to loop start. |
-|  29       | and      | (a b--c)     | TOS = NOS and TOS. Discard NOS. |
-|  30       | or       | (a b--c)     | TOS = NOS or  TOS. Discard NOS. |
-|  31       | xor      | (a b--c)     | TOS = NOS xor TOS. Discard NOS. |
-|           |          |              | --- **System primitives** --- |
-|  32       | ztype    | (a--)        | Output null-terminated string TOS. Discard TOS. |
-|  33       | find     | (--a)        | Push the dictionary address of the next word. |
-|  34       | key      | (--n)        | Push the next keypress. Wait if necessary. |
-|  35       | key?     | (--f)        | Push 1 if a keypress is available, else 0. |
-|  36       | emit     | (c--)        | Output char TOS. Discard TOS. |
-|  37       | fopen    | (nm md--fh)  | Open file NOS using mode TOS (h=0 if error). |
-|  38       | fclose   | (fh--)       | Close file TOS. Discard TOS. |
-|  39       | fread    | (a sz fh--n) | Read NOS chars from file TOS to a. |
-|  40       | fwrite   | (a sz fh--n) | Write NOS chars from file TOS from a. |
-|  41       | ms       | (n--)        | Wait/sleep for TOS milliseconds |
-|  42       | timer    | (--n)        | Push the current system time. |
-|  43       | add-word | (--)         | Add the next word to the dictionary. |
-|  44       | outer    | (a--)        | Run the outer interpreter on TOS. Discard TOS. |
-|  45       | system   | (a--)        | Execute system(TOS). Discard TOS. |
+|   3       | jmpz     | (n--)        | If (`n`==0) then PC = code[PC] else PC = PC+1. |
+|   4       | jmpnz    | (n--)        | If (`n`!=0) then PC = code[PC] else PC = PC+1. |
+|   5       | njmpz    | (n--n)       | If (`n`==0) then PC = code[PC] else PC = PC+1. |
+|   6       | njmpnz   | (n--n)       | If (`n`!=0) then PC = code[PC] else PC = PC+1. |
+|   7       | dup      | (n--n n)     | Duplicate `n`. |
+|   8       | drop     | (n--)        | Discard `n`. |
+|   9       | swap     | (a b--b a)   | Swap `a` and `b`. |
+|  10       | over     | (a b--a b a) | Push `a`. |
+|  11       | !        | (n a--)      | Store CELL `n` to address `a`. |
+|  12       | @        | (a--n)       | Fetch CELL `n` from address `a`. |
+|  13       | c!       | (b a--)      | Store BYTE `b` to address `a`. |
+|  14       | c@       | (a--b)       | Fetch BYTE `b` from address `a`. |
+|  15       | >r       | (n--)        | Move `n` to the return stack. |
+|  16       | r@       | (--n)        | Copy `n` from the return stack. |
+|  17       | r>       | (--n)        | Move `n` from the return stack. |
+|  18       | +L       | (--)         | Create new versions of variables (x,y,z). |
+|  19       | -L       | (--)         | Restore the last set of variables. |
+|  20       | x!       | (n--)        | Set variable X to `n`. |
+|  21       | y!       | (n--)        | Set variable Y to `n`. |
+|  22       | z!       | (n--)        | Set variable Z to `n`. |
+|  23       | x@       | (--n)        | Push variable X. |
+|  24       | y@       | (--n)        | Push variable Y. |
+|  25       | z@       | (--n)        | Push variable Z. |
+|  26       | x@+      | (--n)        | Push variable X, then increment it. |
+|  27       | y@+      | (--n)        | Push variable Y, then increment it. |
+|  28       | z@+      | (--n)        | Push variable Z, then increment it. |
+|  29       | *        | (a b--c)     | `c` = `a`*`b`. |
+|  30       | +        | (a b--c)     | `c` = `a`+`b`. |
+|  31       | -        | (a b--c)     | `c` = `a`-`b`. |
+|  32       | /mod     | (a b--r q)   | `q` = `a`/`b`. `r` = `a` modulo `b`. |
+|  33       | 1+       | (a--b)       | `b` = `a`+1. |
+|  34       | 1-       | (a--b)       | `b` = `a`-1. |
+|  35       | <        | (a b--f)     | If (`a`<`b`) then `f` = 1 else `f` = 0. |
+|  36       | =        | (a b--f)     | If (`a`=`b`) then `f` = 1 else `f` = 0. |
+|  37       | >        | (a b--f)     | If (`a`>`b`) then `f` = 1 else `f` = 0. |
+|  38       | 0=       | (n--f)       | If (`n`==0) then `f` = 1 else `f` = 0. |
+|  39       | min      | (a b--c)     | If (`a` < `b`) `c` = `a` else `b`. |
+|  40       | max      | (a b--c)     | If (`a` > `b`) `c` = `a` else `b`. |
+|  41       | +!       | (n a--)      | Add `n` to the cell at `a`. |
+|  42       | for      | (C--)        | Start a FOR loop starting at 0. Upper limit is `C`. |
+|  43       | i        | (--I)        | Push current loop index `I`. |
+|  44       | next     | (--)         | Increment I. If I < C then jump to loop start. |
+|  45       | and      | (a b--c)     | `c` = `a` and `b`. |
+|  46       | or       | (a b--c)     | `c` = `a` or  `b`. |
+|  47       | xor      | (a b--c)     | `c` = `a` xor `b`. |
+|  48       | ztype    | (a--)        | Output null-terminated string `a`. |
+|  49       | find     | (--a)        | Push the dictionary address `a` of the next word. |
+|  50       | key      | (--n)        | Push the next keypress `n`. Wait if necessary. |
+|  51       | key?     | (--f)        | Push 1 if a keypress is available, else 0. |
+|  52       | emit     | (c--)        | Output char `c`. |
+|  53       | fopen    | (nm md--fh)  | Open file `nm` using mode `md` (`fh`=0 if error). |
+|  54       | fclose   | (fh--)       | Close file `fh`. Discard TOS. |
+|  55       | fread    | (a sz fh--n) | Read `sz` chars from file `fh` to `a`. |
+|  56       | fwrite   | (a sz fh--n) | Write `sz` chars to file `fh` from `a`. |
+|  57       | ms       | (n--)        | Wait/sleep for `n` milliseconds |
+|  58       | timer    | (--n)        | Push the current system time `n`. |
+|  59       | add-word | (--)         | Add the next word to the dictionary. |
+|  60       | outer    | (str--)      | Run the outer interpreter on `str`. |
+|  61       | cmove    | (f t n--)    | Copy `n` bytes from `f` to `t`. |
+|  62       | s-len    | (str--n)     | Determine the length `n` of string `str`. |
+|  63       | system   | (str--)      | Execute system(`str`). |
 
 ## Other built-in words
 
@@ -122,8 +144,15 @@ On startup, DWC does the following:
 | mem       | (--a) | Address of the beginning of the memory area. |
 | mem-sz    | (--n) | The number of BYTEs in the memory area. |
 | >in       | (--a) | Address of the text input buffer pointer. |
-| cell      | (--n) | The number of BYTEs in a CELL. |
+| cell      | (--n) | The size of a CELL in bytes (4 or 8). |
 
-##   Embedding DWC in your C or C++ project
+## Build and Run Instructions
+
+- Compile: Run `make` (requires a C compiler).
+- Run REPL: `./dwc`
+- Load file: `./dwc filename.fth`
+- Clean: `make clean`
+
+## Embedding DWC in your C or C++ project
 
 See system.c. It embeds the DWC VM into a C program.
